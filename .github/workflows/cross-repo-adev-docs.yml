@@ -3,10 +3,6 @@ name: Update ADEV Cross Repo Docs
 on:
   workflow_dispatch:
     inputs: {}
-  push:
-    branches:
-      - 'main'
-      - '[0-9]+.[0-9]+.x'
 
 # Declare default permissions as read only.
 permissions:

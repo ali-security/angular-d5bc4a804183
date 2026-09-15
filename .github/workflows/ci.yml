@@ -1,16 +1,20 @@
 name: CI (push)
 
 on:
-  push:
-    branches:
-      - main
-      - '[0-9]+.[0-9]+.x'
+  workflow_dispatch:
+    inputs:
+      test-filter:
+        description: 'Optional Bazel --test_filter expression narrowing which test cases run (empty runs the full suite).'
+        required: false
+        default: ''
+        type: string
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-permissions: {}
+permissions:
+  contents: read
 
 defaults:
   run:
@@ -18,6 +22,10 @@ defaults:
 
 jobs:
   lint:
+    # Disabled for the sealed build: lint/format/static-analysis gate only, it never
+    # executes the code we ship and needs no secrets-free equivalent here.
+    if: false
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
       - name: Initialize environment
@@ -38,6 +46,10 @@ jobs:
         run: pnpm check-tooling-setup
 
   devtools:
+    # Disabled for the sealed build: DevTools is not part of the @angular/core artifact
+    # and this job needs Bazel RBE credentials we do not have.
+    if: false
+    timeout-minutes: 50
     runs-on: ubuntu-latest
     steps:
       - name: Initialize environment
@@ -66,22 +78,64 @@ jobs:
           install: false
 
   test:
+    timeout-minutes: 50
     runs-on: ubuntu-latest
     steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          df -h /
       - name: Initialize environment
         uses: angular/dev-infra/github-actions/npm/checkout-and-setup-node@ba726e7bca0b08b125ccc6f93c233749e1213c17
       - name: Setup Bazel
         uses: angular/dev-infra/github-actions/bazel/setup@ba726e7bca0b08b125ccc6f93c233749e1213c17
-      - name: Setup Bazel Remote Caching
-        uses: angular/dev-infra/github-actions/bazel/configure-remote@ba726e7bca0b08b125ccc6f93c233749e1213c17
-        with:
-          google_credential: ${{ secrets.RBE_TRUSTED_BUILDS_USER }}
       - name: Install node modules
         run: pnpm install --frozen-lockfile
-      - name: Run CI tests for framework
-        run: pnpm test:ci
+      # Upstream runs `pnpm test:ci` (`bazelisk test -- //... <exclusions>`), which
+      # needs Bazel RBE to finish. Without the RBE credential the run is scoped to the
+      # packages that make up the @angular/core artifact we ship.
+      - name: Run CI tests for framework (core)
+        run: pnpm bazel test --test_filter='${{ inputs.test-filter }}' -- //packages/core/test/...
+
+  test-compiler:
+    timeout-minutes: 50
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          df -h /
+      - name: Initialize environment
+        uses: angular/dev-infra/github-actions/npm/checkout-and-setup-node@ba726e7bca0b08b125ccc6f93c233749e1213c17
+      - name: Setup Bazel
+        uses: angular/dev-infra/github-actions/bazel/setup@ba726e7bca0b08b125ccc6f93c233749e1213c17
+      - name: Install node modules
+        run: pnpm install --frozen-lockfile
+      - name: Run CI tests for framework (compiler)
+        run: pnpm bazel test --test_filter='${{ inputs.test-filter }}' -- //packages/compiler/test/...
+
+  test-compiler-cli:
+    timeout-minutes: 50
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          df -h /
+      - name: Initialize environment
+        uses: angular/dev-infra/github-actions/npm/checkout-and-setup-node@ba726e7bca0b08b125ccc6f93c233749e1213c17
+      - name: Setup Bazel
+        uses: angular/dev-infra/github-actions/bazel/setup@ba726e7bca0b08b125ccc6f93c233749e1213c17
+      - name: Install node modules
+        run: pnpm install --frozen-lockfile
+      - name: Run CI tests for framework (compiler-cli)
+        run: pnpm bazel test --test_filter='${{ inputs.test-filter }}' -- //packages/compiler-cli/test/...
 
   integration-tests:
+    # Disabled for the sealed build: `//integration/...` builds and runs whole sample
+    # applications and cannot finish without Bazel RBE.
+    if: false
+    timeout-minutes: 50
     runs-on: ubuntu-latest
     steps:
       - name: Initialize environment
@@ -98,6 +152,10 @@ jobs:
         run: pnpm integration-tests:ci
 
   adev:
+    # Disabled for the sealed build: the docs site is not part of the @angular/core
+    # artifact and this job needs Bazel RBE credentials we do not have.
+    if: false
+    timeout-minutes: 50
     runs-on:
       labels: ubuntu-latest
     steps:
@@ -117,6 +175,10 @@ jobs:
         run: pnpm bazel build //adev:build
 
   vscode-ng-language-service:
+    # Disabled for the sealed build: separate product, not part of the @angular/core
+    # artifact, and this job needs Bazel RBE credentials we do not have.
+    if: false
+    timeout-minutes: 50
     runs-on:
       labels: ubuntu-latest
     steps:
@@ -134,22 +196,61 @@ jobs:
         run: pnpm bazel test //vscode-ng-language-service/...
 
   publish-snapshots:
+    timeout-minutes: 50
     runs-on:
       labels: ubuntu-latest
     steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          df -h /
       - name: Initialize environment
         uses: angular/dev-infra/github-actions/npm/checkout-and-setup-node@ba726e7bca0b08b125ccc6f93c233749e1213c17
       - name: Setup Bazel
         uses: angular/dev-infra/github-actions/bazel/setup@ba726e7bca0b08b125ccc6f93c233749e1213c17
-      - name: Setup Bazel RBE
-        uses: angular/dev-infra/github-actions/bazel/configure-remote@ba726e7bca0b08b125ccc6f93c233749e1213c17
       - name: Install node modules
         run: pnpm install --frozen-lockfile
-      - run: echo "https://${{secrets.SNAPSHOT_BUILDS_GITHUB_TOKEN}}:@github.com" > ${HOME}/.git_credentials
-      - run: pnpm build
-      - run: ./scripts/ci/publish-snapshot-build-artifacts.sh
+      # Release build of the published package. `--config=release` turns on `--stamp`
+      # plus the `ng-dev release build-env-stamp --mode=release` workspace status
+      # command, which replaces the `0.0.0-PLACEHOLDER` version in
+      # `packages/core/package.json` with the real release version. This is what
+      # `scripts/build/package-builder.mts` (`performNpmReleaseBuild`) does; the
+      # upstream `pnpm build` step is a *snapshot* build and stamps the wrong version.
+      - name: Build the release package
+        run: pnpm bazel build --config=release //packages/core:npm_package
+      # Bazel outputs are read-only symlink trees, so copy the package out before packing.
+      - name: Copy the package output to a writable directory
+        run: |
+          rm -rf "${RUNNER_TEMP}/npm_package"
+          cp -R dist/bin/packages/core/npm_package "${RUNNER_TEMP}/npm_package"
+          chmod -R u+w "${RUNNER_TEMP}/npm_package"
+      - name: Print the stamped package version
+        run: |
+          node -e "console.log('packed @angular/core version: ' + require('${RUNNER_TEMP}/npm_package/package.json').version)"
+      # The published tarball was packed with npm 10.9.7; npm's always-include rules
+      # change across majors, so pin the publisher's npm right before packing.
+      - name: Pin npm to the version that packed the release
+        run: npm i -g npm@10.9.7
+      - name: Pack the release package
+        run: |
+          npm --version
+          mkdir -p "${GITHUB_WORKSPACE}/artifacts"
+          cd "${RUNNER_TEMP}/npm_package"
+          npm pack
+          mv angular-core-*.tgz "${GITHUB_WORKSPACE}/artifacts/core-21.2.19.tgz"
+          ls -l "${GITHUB_WORKSPACE}/artifacts"
+      - name: Upload the release package
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-npm-package
+          path: artifacts/core-21.2.19.tgz
+          if-no-files-found: error
 
   zone-js:
+    # Disabled for the sealed build: zone.js is published as its own package and this
+    # job needs Bazel RBE credentials we do not have.
+    if: false
+    timeout-minutes: 50
     runs-on:
       labels: ubuntu-latest
     steps:
@@ -204,7 +305,9 @@ jobs:
 
   adev-deploy:
     needs: [adev]
+    # `adev` is disabled above, so this job is skipped as well.
     if: needs.adev.result == 'success'
+    timeout-minutes: 50
     runs-on: ubuntu-latest-8core
     steps:
       - name: Initialize environment

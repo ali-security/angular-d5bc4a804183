@@ -8,9 +8,7 @@
 name: Deploying adev preview to Firebase
 
 on:
-  workflow_run:
-    workflows: ['Build adev for preview deployment']
-    types: [completed]
+  workflow_dispatch: {}
 
 permissions:
   # Needed in order to be able to comment on the pull request.

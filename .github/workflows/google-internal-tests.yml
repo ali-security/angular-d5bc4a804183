@@ -1,8 +1,7 @@
 name: Google Internal Tests Enforcement
 
 on:
-  pull_request_target:
-    types: [opened, reopened, synchronize]
+  workflow_dispatch: {}
 
 permissions: {}
 
